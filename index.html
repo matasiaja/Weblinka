@@ -82,7 +82,7 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 let sb = null;
 let session = null;
-let state = { tab: 'scan', products: [], categories: [], locations: [], scannerRunning: false, scannedProduct: null, scannedBarcode: null };
+let state = { tab: 'scan', scanMode: 'restock', products: [], categories: [], locations: [], scannerRunning: false, scannedProduct: null, scannedBarcode: null };
 
 const app = document.getElementById('app');
 
@@ -96,7 +96,8 @@ function icon(name){
     list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
     alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
     settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
-    box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>'
+    box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>',
+    delivery: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>'
   };
   return icons[name] || '';
 }
@@ -165,6 +166,7 @@ function render(){
     <main id="main"></main>
     <nav class="bottom">
       ${navBtn('scan','Uzupełnij półkę')}
+      ${navBtn('delivery','Przyjęcie')}
       ${navBtn('list','Stan')}
       ${navBtn('alert','Braki')}
       ${navBtn('settings','Ustawienia')}
@@ -188,7 +190,8 @@ function setTab(tab){
 
 function renderTab(){
   const main = document.getElementById('main');
-  if (state.tab==='scan') renderScan(main);
+  if (state.tab==='scan') { state.scanMode = 'restock'; renderScan(main); }
+  else if (state.tab==='delivery') { state.scanMode = 'delivery'; renderScan(main); }
   else if (state.tab==='list') renderList(main);
   else if (state.tab==='alert') renderAlerts(main);
   else if (state.tab==='settings') renderSettings(main);
@@ -240,7 +243,7 @@ function renderScan(main){
       <div class="corner tl"></div><div class="corner tr"></div>
       <div class="corner bl"></div><div class="corner br"></div>
     </div>
-    <div class="scan-hint">Wyceluj w kod kreskowy produktu na półce</div>
+    <div class="scan-hint">${state.scanMode === 'delivery' ? 'Zeskanuj produkt z dostawy' : 'Wyceluj w kod kreskowy produktu na półce'}</div>
     <div style="margin-top:14px;">
       <button class="btn secondary" onclick="manualBarcode()">Wpisz kod ręcznie</button>
     </div>
@@ -286,6 +289,10 @@ function renderScanResult(main){
   const p = state.scannedProduct;
 
   if (p){
+    if (state.scanMode === 'delivery'){
+      renderDeliveryResult(main, p, code);
+      return;
+    }
     const missing = Math.max(p.shelf_target - p.current_stock, 0);
     main.innerHTML = `
       <div class="card">
@@ -329,7 +336,7 @@ function renderScanResult(main){
         <select id="new-loc"><option value="">— brak —</option>${locOpts}</select>
         <div class="row">
           <div>
-            <label>Ile jest teraz</label>
+            <label>${state.scanMode === 'delivery' ? 'Ile przyszło (dostawa)' : 'Ile jest teraz'}</label>
             <input id="new-count" type="number" min="0" value="0">
           </div>
           <div>
@@ -342,6 +349,43 @@ function renderScanResult(main){
       </div>`;
     autoFillFromOpenFoodFacts(code);
   }
+}
+
+function renderDeliveryResult(main, p, code){
+  main.innerHTML = `
+    <div class="card">
+      <div class="section-title">Dostawa</div>
+      <div style="font-size:18px;font-weight:600;margin-bottom:2px;">${escapeHtml(p.name)}</div>
+      <div class="mono" style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">${escapeHtml(code)} · ${catName(p.category_id)} · obecny stan: ${p.current_stock}</div>
+
+      <label>Ile sztuk przyszło w dostawie?</label>
+      <input id="delivery-qty" type="number" min="0" inputmode="numeric" value="0" autofocus>
+
+      <div id="delivery-preview" style="text-align:center;margin:14px 0;">
+        <div class="missing-big" style="color:var(--ok);">${p.current_stock}</div>
+        <div class="scan-hint" style="margin-top:0;">nowy stan po przyjęciu</div>
+      </div>
+
+      <button class="btn" onclick="saveDelivery('${p.id}')">Zapisz dostawę</button>
+      <button class="btn secondary" style="margin-top:8px;" onclick="rescan()">Skanuj kolejny</button>
+    </div>`;
+  const upd = ()=>{
+    const qty = parseInt(document.getElementById('delivery-qty').value)||0;
+    document.querySelector('.missing-big').textContent = p.current_stock + qty;
+  };
+  document.getElementById('delivery-qty').addEventListener('input', upd);
+}
+
+async function saveDelivery(productId){
+  const qty = parseInt(document.getElementById('delivery-qty').value)||0;
+  if (qty <= 0){ toast('Podaj ilość większą od zera'); return; }
+  const p = state.products.find(x=>x.id===productId);
+  const newStock = (p?.current_stock || 0) + qty;
+  await sb.from('products').update({ current_stock: newStock }).eq('id', productId);
+  await sb.from('deliveries').insert({ product_id: productId, quantity: qty });
+  await loadAll();
+  toast(`Dodano ${qty} szt. — nowy stan: ${newStock}`);
+  rescan();
 }
 
 function rescan(){
@@ -393,6 +437,9 @@ async function saveNewProduct(barcode){
   const { data, error } = await sb.from('products').insert({ barcode, name, category_id, location_id, current_stock, shelf_target }).select().single();
   if (error){ toast('Błąd: ' + error.message); return; }
   await sb.from('stock_checks').insert({ product_id: data.id, counted_stock: current_stock, target_stock: shelf_target });
+  if (state.scanMode === 'delivery' && current_stock > 0){
+    await sb.from('deliveries').insert({ product_id: data.id, quantity: current_stock });
+  }
   await loadAll();
   toast('Dodano produkt');
   rescan();
