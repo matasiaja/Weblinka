@@ -82,7 +82,7 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 let sb = null;
 let session = null;
-let state = { tab: 'scan', scanMode: 'restock', products: [], categories: [], locations: [], scannerRunning: false, scannedProduct: null, scannedBarcode: null };
+let state = { tab: localStorage.getItem('weblinka_tab') || 'scan', scanMode: 'restock', products: [], categories: [], locations: [], scannerRunning: false, scannedProduct: null, scannedBarcode: null };
 
 const app = document.getElementById('app');
 
@@ -185,6 +185,7 @@ function setTab(tab){
   state.tab = tab;
   state.scannedProduct = null;
   state.scannedBarcode = null;
+  localStorage.setItem('weblinka_tab', tab);
   render();
 }
 
