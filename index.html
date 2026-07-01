@@ -409,13 +409,19 @@ async function autoFillFromOpenFoodFacts(barcode){
   if (!nameInput) return;
   nameInput.placeholder = 'Szukam w bazie produktów…';
   try {
-    const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=product_name,brands`);
+    const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=product_name,product_name_pl,generic_name,generic_name_pl,quantity,brands`);
     const data = await res.json();
     const input = document.getElementById('new-name'); // re-check, tab may have changed
     if (!input) return;
-    if (data.status === 1 && data.product && data.product.product_name){
-      const brand = data.product.brands ? data.product.brands.split(',')[0].trim() : '';
-      input.value = brand ? `${data.product.product_name} (${brand})` : data.product.product_name;
+    const prod = data.product;
+    const baseName = prod && (prod.product_name_pl || prod.product_name || prod.generic_name_pl || prod.generic_name);
+    if (data.status === 1 && prod && baseName){
+      const brand = prod.brands ? prod.brands.split(',')[0].trim() : '';
+      const quantity = prod.quantity ? prod.quantity.trim() : '';
+      let full = baseName;
+      if (brand && !full.toLowerCase().includes(brand.toLowerCase())) full = `${full} ${brand}`;
+      if (quantity && !full.includes(quantity)) full = `${full} ${quantity}`;
+      input.value = full;
       input.placeholder = 'np. Coca-Cola 500ml';
       toast('Znaleziono w Open Food Facts');
     } else {
