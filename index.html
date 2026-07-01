@@ -340,6 +340,7 @@ function renderScanResult(main){
         <button class="btn" onclick="saveNewProduct('${code}')">Dodaj produkt</button>
         <button class="btn secondary" style="margin-top:8px;" onclick="rescan()">Anuluj</button>
       </div>`;
+    autoFillFromOpenFoodFacts(code);
   }
 }
 
@@ -357,6 +358,29 @@ async function saveCount(productId){
   await loadAll();
   toast('Zapisano');
   rescan();
+}
+
+async function autoFillFromOpenFoodFacts(barcode){
+  const nameInput = document.getElementById('new-name');
+  if (!nameInput) return;
+  nameInput.placeholder = 'Szukam w bazie produktów…';
+  try {
+    const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=product_name,brands`);
+    const data = await res.json();
+    const input = document.getElementById('new-name'); // re-check, tab may have changed
+    if (!input) return;
+    if (data.status === 1 && data.product && data.product.product_name){
+      const brand = data.product.brands ? data.product.brands.split(',')[0].trim() : '';
+      input.value = brand ? `${data.product.product_name} (${brand})` : data.product.product_name;
+      input.placeholder = 'np. Coca-Cola 500ml';
+      toast('Znaleziono w Open Food Facts');
+    } else {
+      input.placeholder = 'np. Coca-Cola 500ml (nie znaleziono w bazie)';
+    }
+  } catch (e){
+    const input = document.getElementById('new-name');
+    if (input) input.placeholder = 'np. Coca-Cola 500ml';
+  }
 }
 
 async function saveNewProduct(barcode){
