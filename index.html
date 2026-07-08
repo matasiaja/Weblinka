@@ -97,7 +97,8 @@ function icon(name){
     alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
     settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
     box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>',
-    delivery: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>'
+    delivery: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>',
+    gap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="10" rx="2"/><line x1="8" y1="7" x2="8" y2="17" stroke-dasharray="2.5 2.5"/><line x1="16" y1="7" x2="16" y2="17" stroke-dasharray="2.5 2.5"/></svg>'
   };
   return icons[name] || '';
 }
@@ -167,6 +168,7 @@ function render(){
     <nav class="bottom">
       ${navBtn('scan','Uzupełnij półkę')}
       ${navBtn('delivery','Przyjęcie')}
+      ${navBtn('gap','Wolne miejsce')}
       ${navBtn('list','Stan')}
       ${navBtn('alert','Braki')}
       ${navBtn('settings','Ustawienia')}
@@ -193,6 +195,7 @@ function renderTab(){
   const main = document.getElementById('main');
   if (state.tab==='scan') { state.scanMode = 'restock'; renderScan(main); }
   else if (state.tab==='delivery') { state.scanMode = 'delivery'; renderScan(main); }
+  else if (state.tab==='gap') { state.scanMode = 'gap'; renderScan(main); }
   else if (state.tab==='list') renderList(main);
   else if (state.tab==='alert') renderAlerts(main);
   else if (state.tab==='settings') renderSettings(main);
@@ -244,7 +247,7 @@ function renderScan(main){
       <div class="corner tl"></div><div class="corner tr"></div>
       <div class="corner bl"></div><div class="corner br"></div>
     </div>
-    <div class="scan-hint">${state.scanMode === 'delivery' ? 'Zeskanuj produkt z dostawy' : 'Wyceluj w kod kreskowy produktu na półce'}</div>
+    <div class="scan-hint">${state.scanMode === 'delivery' ? 'Zeskanuj produkt z dostawy' : state.scanMode === 'gap' ? 'Zeskanuj produkt, żeby podać wolne miejsce na półce' : 'Wyceluj w kod kreskowy produktu na półce'}</div>
     <div style="margin-top:14px;">
       <button class="btn secondary" onclick="manualBarcode()">Wpisz kod ręcznie</button>
     </div>
@@ -294,6 +297,10 @@ function renderScanResult(main){
       renderDeliveryResult(main, p, code);
       return;
     }
+    if (state.scanMode === 'gap'){
+      renderGapResult(main, p, code);
+      return;
+    }
     const missing = Math.max(p.shelf_target - p.current_stock, 0);
     main.innerHTML = `
       <div class="card">
@@ -337,7 +344,7 @@ function renderScanResult(main){
         <select id="new-loc"><option value="">— brak —</option>${locOpts}</select>
         <div class="row">
           <div>
-            <label>${state.scanMode === 'delivery' ? 'Ile przyszło (dostawa)' : 'Ile jest teraz'}</label>
+            <label>${state.scanMode === 'delivery' ? 'Ile przyszło (dostawa)' : state.scanMode === 'gap' ? 'Ile wolnego miejsca' : 'Ile jest teraz'}</label>
             <input id="new-count" type="number" min="0" value="0">
           </div>
           <div>
@@ -386,6 +393,43 @@ async function saveDelivery(productId){
   await sb.from('deliveries').insert({ product_id: productId, quantity: qty });
   await loadAll();
   toast(`Dodano ${qty} szt. — nowy stan: ${newStock}`);
+  rescan();
+}
+
+function renderGapResult(main, p, code){
+  main.innerHTML = `
+    <div class="card">
+      <div class="section-title">Wolne miejsce</div>
+      <div style="font-size:18px;font-weight:600;margin-bottom:2px;">${escapeHtml(p.name)}</div>
+      <div class="mono" style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">${escapeHtml(code)} · ${catName(p.category_id)} · ${locName(p.location_id)} · cel: ${p.shelf_target}</div>
+
+      <label>Ile wolnego miejsca na półce?</label>
+      <input id="gap-input" type="number" min="0" inputmode="numeric" value="0" autofocus>
+
+      <div id="gap-preview" style="text-align:center;margin:14px 0;">
+        <div class="missing-big">0</div>
+        <div class="scan-hint" style="margin-top:0;">sztuk do przyniesienia z magazynu</div>
+      </div>
+
+      <button class="btn" onclick="saveGap('${p.id}')">Zapisz</button>
+      <button class="btn secondary" style="margin-top:8px;" onclick="rescan()">Skanuj kolejny</button>
+    </div>`;
+  const upd = ()=>{
+    const gap = parseInt(document.getElementById('gap-input').value)||0;
+    document.querySelector('.missing-big').textContent = gap;
+  };
+  document.getElementById('gap-input').addEventListener('input', upd);
+}
+
+async function saveGap(productId){
+  const gap = parseInt(document.getElementById('gap-input').value)||0;
+  const p = state.products.find(x=>x.id===productId);
+  const target = p?.shelf_target || 0;
+  const newStock = Math.max(target - gap, 0);
+  await sb.from('products').update({ current_stock: newStock }).eq('id', productId);
+  await sb.from('stock_checks').insert({ product_id: productId, counted_stock: newStock, target_stock: target });
+  await loadAll();
+  toast(gap > 0 ? `Do przyniesienia: ${gap} szt.` : 'Pełna półka — zapisano');
   rescan();
 }
 
@@ -439,8 +483,9 @@ async function saveNewProduct(barcode){
   if (!name){ toast('Podaj nazwę produktu'); return; }
   const category_id = document.getElementById('new-cat').value || null;
   const location_id = document.getElementById('new-loc').value || null;
-  const current_stock = parseInt(document.getElementById('new-count').value)||0;
   const shelf_target = parseInt(document.getElementById('new-target').value)||0;
+  const inputVal = parseInt(document.getElementById('new-count').value)||0;
+  const current_stock = state.scanMode === 'gap' ? Math.max(shelf_target - inputVal, 0) : inputVal;
   const { data, error } = await sb.from('products').insert({ barcode, name, category_id, location_id, current_stock, shelf_target }).select().single();
   if (error){ toast('Błąd: ' + error.message); return; }
   await sb.from('stock_checks').insert({ product_id: data.id, counted_stock: current_stock, target_stock: shelf_target });
