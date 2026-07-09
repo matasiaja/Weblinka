@@ -7,9 +7,15 @@ create extension if not exists "pgcrypto";
 
 create table categories (
   id uuid primary key default gen_random_uuid(),
-  name text not null unique,
+  name text not null,
+  parent_id uuid references categories(id) on delete cascade,
   created_at timestamptz default now()
 );
+
+create index categories_parent_idx on categories(parent_id);
+-- nazwa unikalna wśród kategorii głównych, i osobno wśród podkategorii tego samego rodzica
+create unique index categories_toplevel_name_uidx on categories(name) where parent_id is null;
+create unique index categories_child_name_uidx on categories(parent_id, name) where parent_id is not null;
 
 create table locations (
   id uuid primary key default gen_random_uuid(),

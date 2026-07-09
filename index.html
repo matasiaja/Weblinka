@@ -159,7 +159,24 @@ async function loadAll(){
   state.locations = locations || [];
 }
 
-function catName(id){ return state.categories.find(c=>c.id===id)?.name || '—'; }
+function catName(id){
+  const c = state.categories.find(x=>x.id===id);
+  if (!c) return '—';
+  if (!c.parent_id) return c.name;
+  const parent = state.categories.find(x=>x.id===c.parent_id);
+  return parent ? `${parent.name} / ${c.name}` : c.name;
+}
+function categorySelectOptions(selectedId){
+  const top = state.categories.filter(c=>!c.parent_id);
+  return top.map(p=>{
+    const own = `<option value="${p.id}" ${selectedId===p.id?'selected':''}>${escapeHtml(p.name)}</option>`;
+    const children = state.categories
+      .filter(c=>c.parent_id===p.id)
+      .map(c=>`<option value="${c.id}" ${selectedId===c.id?'selected':''}>&nbsp;&nbsp;↳ ${escapeHtml(c.name)}</option>`)
+      .join('');
+    return own + children;
+  }).join('');
+}
 function locName(id){ return state.locations.find(l=>l.id===id)?.name || '—'; }
 
 // ---------------- RENDER SHELL ----------------
@@ -342,7 +359,6 @@ function renderScanResult(main){
     document.getElementById('count-input').addEventListener('input', upd);
     document.getElementById('target-input').addEventListener('input', upd);
   } else {
-    const catOpts = state.categories.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
     const locOpts = state.locations.map(l=>`<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('');
     main.innerHTML = `
       <div class="card">
@@ -352,7 +368,7 @@ function renderScanResult(main){
         <label>Nazwa produktu</label>
         <input id="new-name" placeholder="np. Coca-Cola 500ml">
         <label>Kategoria</label>
-        <select id="new-cat"><option value="">— brak —</option>${catOpts}</select>
+        <select id="new-cat"><option value="">— brak —</option>${categorySelectOptions(null)}</select>
         <label>Lokalizacja</label>
         <select id="new-loc"><option value="">— brak —</option>${locOpts}</select>
         <div class="row">
@@ -620,11 +636,16 @@ function renderSettings(main){
   main.innerHTML = `
     <div class="card">
       <div class="section-title">Kategorie</div>
-      ${state.categories.map(c=>`<div class="product-row"><div class="name">${escapeHtml(c.name)}</div><button class="link" onclick="deleteCategory('${c.id}')">Usuń</button></div>`).join('') || '<div class="scan-hint">Brak kategorii</div>'}
+      ${renderCategoryTree()}
       <div class="row" style="margin-top:12px;">
-        <input id="new-cat-name" placeholder="Nowa kategoria">
-        <button class="btn small" onclick="addCategory()">Dodaj</button>
+        <input id="new-cat-name" placeholder="Nazwa kategorii/podkategorii">
       </div>
+      <label>Kategoria nadrzędna</label>
+      <select id="new-cat-parent">
+        <option value="">— brak (kategoria główna) —</option>
+        ${state.categories.filter(c=>!c.parent_id).map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}
+      </select>
+      <button class="btn small" onclick="addCategory()">Dodaj</button>
     </div>
     <div class="card">
       <div class="section-title">Lokalizacje</div>
@@ -641,13 +662,33 @@ function renderSettings(main){
   `;
 }
 
+function renderCategoryTree(){
+  const top = state.categories.filter(c=>!c.parent_id);
+  if (!top.length) return '<div class="scan-hint">Brak kategorii</div>';
+  return top.map(p=>{
+    const children = state.categories.filter(c=>c.parent_id===p.id);
+    const childRows = children.map(c=>`
+      <div class="product-row" style="padding-left:18px;">
+        <div class="name">↳ ${escapeHtml(c.name)}</div>
+        <button class="link" onclick="deleteCategory('${c.id}')">Usuń</button>
+      </div>`).join('');
+    return `
+      <div class="product-row"><div class="name">${escapeHtml(p.name)}</div><button class="link" onclick="deleteCategory('${p.id}')">Usuń</button></div>
+      ${childRows}`;
+  }).join('');
+}
+
 async function addCategory(){
   const name = document.getElementById('new-cat-name').value.trim();
   if (!name) return;
-  await sb.from('categories').insert({ name });
+  const parent_id = document.getElementById('new-cat-parent').value || null;
+  const { error } = await sb.from('categories').insert({ name, parent_id });
+  if (error){ toast('Błąd: ' + error.message); return; }
   await loadAll(); renderTab();
 }
 async function deleteCategory(id){
+  const hasChildren = state.categories.some(c=>c.parent_id===id);
+  if (hasChildren && !confirm('Ta kategoria ma podkategorie — zostaną usunięte razem z nią. Kontynuować?')) return;
   await sb.from('categories').delete().eq('id', id);
   await loadAll(); renderTab();
 }
