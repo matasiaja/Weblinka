@@ -328,12 +328,13 @@ function renderScanResult(main){
       return;
     }
     const missing = Math.max(p.shelf_target - p.current_stock, 0);
+    const editLocOpts = state.locations.map(l=>`<option value="${l.id}" ${p.location_id===l.id?'selected':''}>${escapeHtml(l.name)}</option>`).join('');
     main.innerHTML = `
       <div class="card">
         <div class="section-title">Zeskanowano</div>
         <label>Nazwa produktu</label>
         <input id="name-input" value="${escapeHtml(p.name)}" style="font-size:16px;font-weight:600;">
-        <div class="mono" style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">${escapeHtml(code)} · ${catName(p.category_id)} · ${locName(p.location_id)}</div>
+        <div class="mono" style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">${escapeHtml(code)}</div>
 
         <label>Ile jest teraz na półce?</label>
         <input id="count-input" type="number" min="0" inputmode="numeric" value="${p.current_stock}">
@@ -345,8 +346,14 @@ function renderScanResult(main){
           <div class="scan-hint" style="margin-top:0;">brakuje sztuk</div>
         </div>
 
+        <label>Kategoria</label>
+        <select id="edit-cat"><option value="">— brak —</option>${categorySelectOptions(p.category_id)}</select>
+        <label>Lokalizacja</label>
+        <select id="edit-loc"><option value="">— brak —</option>${editLocOpts}</select>
+
         <button class="btn" onclick="saveCount('${p.id}')">Zapisz</button>
         <button class="btn secondary" style="margin-top:8px;" onclick="rescan()">Skanuj kolejny</button>
+        <button class="btn secondary" style="margin-top:8px;color:var(--danger);" onclick="deleteProduct('${p.id}')">Usuń produkt</button>
       </div>`;
     const upd = ()=>{
       const c = parseInt(document.getElementById('count-input').value)||0;
@@ -477,12 +484,24 @@ async function saveCount(productId){
   const count = parseInt(document.getElementById('count-input').value)||0;
   const target = parseInt(document.getElementById('target-input').value)||0;
   const name = document.getElementById('name-input').value.trim();
-  const updates = { current_stock: count, shelf_target: target };
+  const category_id = document.getElementById('edit-cat').value || null;
+  const location_id = document.getElementById('edit-loc').value || null;
+  const updates = { current_stock: count, shelf_target: target, category_id, location_id };
   if (name) updates.name = name;
   await sb.from('products').update(updates).eq('id', productId);
   await sb.from('stock_checks').insert({ product_id: productId, counted_stock: count, target_stock: target });
   await loadAll();
   toast('Zapisano');
+  rescan();
+}
+
+async function deleteProduct(productId){
+  const p = state.products.find(x=>x.id===productId);
+  if (!confirm(`Usunąć produkt "${p?.name || ''}"? Tej operacji nie można cofnąć.`)) return;
+  const { error } = await sb.from('products').delete().eq('id', productId);
+  if (error){ toast('Błąd: ' + error.message); return; }
+  await loadAll();
+  toast('Usunięto produkt');
   rescan();
 }
 
