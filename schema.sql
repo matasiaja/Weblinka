@@ -32,6 +32,7 @@ create table products (
   unit text not null default 'szt',
   shelf_target integer not null default 0,     -- ile powinno być na półce
   current_stock integer not null default 0,     -- ile jest teraz (ostatnie liczenie)
+  image_url text,                               -- zdjęcie produktu (Open Food Facts)
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

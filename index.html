@@ -68,6 +68,7 @@
   .corner.bl{bottom:8%;left:8%;border-bottom:3px solid var(--accent);border-left:3px solid var(--accent);border-radius:0 0 0 6px;}
   .corner.br{bottom:8%;right:8%;border-bottom:3px solid var(--accent);border-right:3px solid var(--accent);border-radius:0 0 6px 0;}
   .missing-big{font-family:'IBM Plex Mono',monospace;font-size:34px;font-weight:600;color:var(--warn);}
+  .product-photo{width:64px;height:64px;object-fit:cover;border-radius:10px;display:block;margin-bottom:10px;background:var(--surface-2);border:1px solid var(--border);}
   .toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--surface-2);border:1px solid var(--border);padding:10px 16px;border-radius:10px;font-size:13px;z-index:50;box-shadow:0 4px 20px rgba(0,0,0,.4);}
   .link{color:var(--accent);background:none;border:none;font-family:inherit;font-size:13px;cursor:pointer;padding:0;}
   .section-title{font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.6px;font-family:'IBM Plex Mono',monospace;margin:4px 0 10px;}
@@ -338,6 +339,7 @@ function renderScanResult(main){
     main.innerHTML = `
       <div class="card">
         <div class="section-title">Zeskanowano</div>
+        ${productPhotoHtml(p)}
         <label>Nazwa produktu</label>
         <input id="name-input" value="${escapeHtml(p.name)}" style="font-size:16px;font-weight:600;">
         <div class="mono" style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">${escapeHtml(code)}</div>
@@ -368,11 +370,14 @@ function renderScanResult(main){
     };
     document.getElementById('count-input').addEventListener('input', upd);
     document.getElementById('target-input').addEventListener('input', upd);
+    ensureProductImage(p);
   } else {
     const locOpts = state.locations.map(l=>`<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('');
     main.innerHTML = `
       <div class="card">
         <div class="section-title">Nowy produkt</div>
+        <img id="new-photo" class="product-photo" style="display:none;" alt="">
+        <input type="hidden" id="new-image-url" value="">
         <div class="mono" style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">Kod: ${escapeHtml(code)}</div>
 
         <label>Nazwa produktu</label>
@@ -402,6 +407,7 @@ function renderDeliveryResult(main, p, code){
   main.innerHTML = `
     <div class="card">
       <div class="section-title">Dostawa</div>
+      ${productPhotoHtml(p)}
       <label>Nazwa produktu</label>
       <input id="name-input" value="${escapeHtml(p.name)}" style="font-size:16px;font-weight:600;">
       <div class="mono" style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">${escapeHtml(code)} · ${catName(p.category_id)} · obecny stan: ${p.current_stock}</div>
@@ -422,6 +428,7 @@ function renderDeliveryResult(main, p, code){
     document.querySelector('.missing-big').textContent = p.current_stock + qty;
   };
   document.getElementById('delivery-qty').addEventListener('input', upd);
+  ensureProductImage(p);
 }
 
 async function saveDelivery(productId){
@@ -443,6 +450,7 @@ function renderGapResult(main, p, code){
   main.innerHTML = `
     <div class="card">
       <div class="section-title">Wolne miejsce</div>
+      ${productPhotoHtml(p)}
       <label>Nazwa produktu</label>
       <input id="name-input" value="${escapeHtml(p.name)}" style="font-size:16px;font-weight:600;">
       <div class="mono" style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">${escapeHtml(code)} · ${catName(p.category_id)} · ${locName(p.location_id)} · cel: ${p.shelf_target}</div>
@@ -463,6 +471,7 @@ function renderGapResult(main, p, code){
     document.querySelector('.missing-big').textContent = gap;
   };
   document.getElementById('gap-input').addEventListener('input', upd);
+  ensureProductImage(p);
 }
 
 async function saveGap(productId){
@@ -511,32 +520,85 @@ async function deleteProduct(productId){
   rescan();
 }
 
+const OFF_FIELDS = 'product_name,product_name_pl,generic_name,generic_name_pl,quantity,brands,image_front_small_url,image_small_url,categories_tags';
+
+async function fetchOffProduct(barcode){
+  try {
+    const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=${OFF_FIELDS}`);
+    const data = await res.json();
+    if (data.status === 1 && data.product) return data.product;
+  } catch (e){}
+  return null;
+}
+
+function normalizeOffTag(tag){
+  return tag.replace(/^[a-z]{2,3}:/, '').replace(/-/g, ' ').toLowerCase().trim();
+}
+
+function matchCategoryFromTags(tags){
+  if (!tags || !tags.length) return null;
+  const plTags = tags.filter(t => t.startsWith('pl:'));
+  const ordered = [...plTags, ...tags].map(normalizeOffTag);
+  for (const cand of ordered){
+    const found = state.categories.find(c => {
+      const cname = c.name.toLowerCase();
+      return cname === cand || cand.includes(cname) || cname.includes(cand);
+    });
+    if (found) return found.id;
+  }
+  return null;
+}
+
+function productPhotoHtml(p){
+  const src = p.image_url ? ` src="${escapeHtml(p.image_url)}"` : '';
+  return `<img id="product-photo" class="product-photo" style="${p.image_url ? '' : 'display:none;'}"${src} alt="">`;
+}
+
+function ensureProductImage(p){
+  if (p.image_url) return;
+  fetchOffProduct(p.barcode).then(prod => {
+    const url = prod && (prod.image_front_small_url || prod.image_small_url);
+    if (!url) return;
+    p.image_url = url;
+    sb.from('products').update({ image_url: url }).eq('id', p.id).then(()=>{});
+    const img = document.getElementById('product-photo');
+    if (img){ img.src = url; img.style.display = ''; }
+  });
+}
+
 async function autoFillFromOpenFoodFacts(barcode){
   const nameInput = document.getElementById('new-name');
   if (!nameInput) return;
   nameInput.placeholder = 'Szukam w bazie produktów…';
-  try {
-    const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=product_name,product_name_pl,generic_name,generic_name_pl,quantity,brands`);
-    const data = await res.json();
-    const input = document.getElementById('new-name'); // re-check, tab may have changed
-    if (!input) return;
-    const prod = data.product;
-    const baseName = prod && (prod.product_name_pl || prod.product_name || prod.generic_name_pl || prod.generic_name);
-    if (data.status === 1 && prod && baseName){
-      const brand = prod.brands ? prod.brands.split(',')[0].trim() : '';
-      const quantity = prod.quantity ? prod.quantity.trim() : '';
-      let full = baseName;
-      if (brand && !full.toLowerCase().includes(brand.toLowerCase())) full = `${full} ${brand}`;
-      if (quantity && !full.includes(quantity)) full = `${full} ${quantity}`;
-      input.value = full;
-      input.placeholder = 'np. Coca-Cola 500ml';
-      toast('Znaleziono w Open Food Facts');
-    } else {
-      input.placeholder = 'np. Coca-Cola 500ml (nie znaleziono w bazie)';
+  const prod = await fetchOffProduct(barcode);
+  const input = document.getElementById('new-name'); // re-check, tab may have changed
+  if (!input) return;
+  const baseName = prod && (prod.product_name_pl || prod.product_name || prod.generic_name_pl || prod.generic_name);
+  if (prod && baseName){
+    const brand = prod.brands ? prod.brands.split(',')[0].trim() : '';
+    const quantity = prod.quantity ? prod.quantity.trim() : '';
+    let full = baseName;
+    if (brand && !full.toLowerCase().includes(brand.toLowerCase())) full = `${full} ${brand}`;
+    if (quantity && !full.includes(quantity)) full = `${full} ${quantity}`;
+    input.value = full;
+    input.placeholder = 'np. Coca-Cola 500ml';
+
+    const imageUrl = prod.image_front_small_url || prod.image_small_url;
+    const photo = document.getElementById('new-photo');
+    const imageUrlInput = document.getElementById('new-image-url');
+    if (imageUrl && photo && imageUrlInput){
+      photo.src = imageUrl;
+      photo.style.display = '';
+      imageUrlInput.value = imageUrl;
     }
-  } catch (e){
-    const input = document.getElementById('new-name');
-    if (input) input.placeholder = 'np. Coca-Cola 500ml';
+
+    const catId = matchCategoryFromTags(prod.categories_tags);
+    const catSelect = document.getElementById('new-cat');
+    if (catId && catSelect) catSelect.value = catId;
+
+    toast('Znaleziono w Open Food Facts');
+  } else {
+    input.placeholder = 'np. Coca-Cola 500ml (nie znaleziono w bazie)';
   }
 }
 
@@ -548,7 +610,8 @@ async function saveNewProduct(barcode){
   const shelf_target = parseInt(document.getElementById('new-target').value)||0;
   const inputVal = parseInt(document.getElementById('new-count').value)||0;
   const current_stock = state.scanMode === 'gap' ? Math.max(shelf_target - inputVal, 0) : inputVal;
-  const { data, error } = await sb.from('products').insert({ barcode, name, category_id, location_id, current_stock, shelf_target }).select().single();
+  const image_url = document.getElementById('new-image-url').value || null;
+  const { data, error } = await sb.from('products').insert({ barcode, name, category_id, location_id, current_stock, shelf_target, image_url }).select().single();
   if (error){ toast('Błąd: ' + error.message); return; }
   await sb.from('stock_checks').insert({ product_id: data.id, counted_stock: current_stock, target_stock: shelf_target });
   if (state.scanMode === 'delivery' && current_stock > 0){
