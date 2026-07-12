@@ -11,9 +11,9 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
 <style>
   :root{
     --bg:#14161A; --surface:#1C1F26; --surface-2:#262A33; --border:#333844;
@@ -77,7 +77,7 @@
 <body>
 <div id="app"></div>
 
-<script>
+<script defer>
 // ==========================================================
 // KONFIGURACJA — uzupełnij po utworzeniu projektu Supabase
 // ==========================================================
@@ -207,8 +207,8 @@ function navBtn(tab,label){
   return `<button class="${active}" onclick="setTab('${tab}')">${icon(tab)}<span>${label}</span></button>`;
 }
 
-function setTab(tab){
-  stopScanner();
+async function setTab(tab){
+  await stopScanner();
   state.tab = tab;
   state.scannedProduct = null;
   state.scannedBarcode = null;
@@ -281,24 +281,30 @@ function renderScan(main){
   startScanner();
 }
 
+let scannerStarting = null;
+
 function startScanner(){
-  if (state.scannerRunning) return;
+  if (state.scannerRunning || scannerStarting) return scannerStarting;
   html5Qr = new Html5Qrcode("reader");
-  html5Qr.start(
+  scannerStarting = html5Qr.start(
     { facingMode: "environment" },
     { fps: 10, qrbox: { width: 250, height: 150 } },
     (decodedText)=>{ onBarcode(decodedText); },
     ()=>{}
   ).then(()=>{ state.scannerRunning = true; }).catch(()=>{
-    document.getElementById('reader').innerHTML = '<div class="empty">Brak dostępu do kamery. Sprawdź uprawnienia przeglądarki lub wpisz kod ręcznie.</div>';
-  });
+    const readerEl = document.getElementById('reader');
+    if (readerEl) readerEl.innerHTML = '<div class="empty">Brak dostępu do kamery. Sprawdź uprawnienia przeglądarki lub wpisz kod ręcznie.</div>';
+  }).finally(()=>{ scannerStarting = null; });
+  return scannerStarting;
 }
 
-function stopScanner(){
+async function stopScanner(){
+  if (scannerStarting) await scannerStarting;
   if (html5Qr && state.scannerRunning){
-    html5Qr.stop().then(()=>html5Qr.clear()).catch(()=>{});
     state.scannerRunning = false;
+    try { await html5Qr.stop(); await html5Qr.clear(); } catch(e){}
   }
+  html5Qr = null;
 }
 
 function manualBarcode(){
@@ -307,7 +313,7 @@ function manualBarcode(){
 }
 
 async function onBarcode(code){
-  stopScanner();
+  await stopScanner();
   const existing = state.products.find(p => p.barcode === code);
   state.scannedBarcode = code;
   state.scannedProduct = existing || false; // false = nie znaleziono
