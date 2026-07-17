@@ -92,6 +92,35 @@ let state = { tab: localStorage.getItem('weblinka_tab') || 'scan', scanMode: 're
 
 const app = document.getElementById('app');
 
+// ---------------- NAWIGACJA: fizyczny/systemowy przycisk "Wstecz" ----------------
+// Ta sama logika co w Spotigraj/Biblioteczce: zakładka 'scan' jest korzeniem — Back z niej
+// zamyka appkę. Pozostałe zakładki są jej dziećmi (replaceState — Back z każdej z nich wraca
+// do 'scan', niezależnie od realnej ścieżki kliknięć). Wynik skanowania jest dzieckiem aktywnej
+// zakładki (pushState przy otwarciu — przyciski "Anuluj"/"Skanuj kolejny" same historii nie
+// ruszają, więc jeden fizyczny Back cofa dokładnie jeden poziom).
+let navFoundationReady = false;
+function ensureNavFoundation(){
+  if (navFoundationReady) return;
+  navFoundationReady = true;
+  window.history.replaceState({ tab: state.tab, _foundation: true }, '', '#' + state.tab);
+  window.history.pushState({ tab: state.tab, _foundation: true }, '', '#' + state.tab);
+}
+
+window.addEventListener('popstate', function(){
+  if (!session) return;
+  if (state.scannedProduct !== null || state.scannedBarcode){
+    state.scannedProduct = null;
+    state.scannedBarcode = null;
+    renderTab();
+    return;
+  }
+  if (state.tab === 'scan') return; // korzeń — Back zamyka appkę
+  state.tab = 'scan';
+  localStorage.setItem('weblinka_tab', 'scan');
+  render();
+  window.history.replaceState({ tab: 'scan' }, '', '#scan');
+});
+
 function configured(){
   return SUPABASE_URL && !SUPABASE_URL.startsWith('TU_') && SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.startsWith('TU_');
 }
@@ -132,9 +161,10 @@ async function boot(){
   sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const { data } = await sb.auth.getSession();
   session = data.session;
-  sb.auth.onAuthStateChange((_e, s)=>{ session = s; render(); });
+  sb.auth.onAuthStateChange((_e, s)=>{ session = s; render(); if (session) ensureNavFoundation(); });
   if (session){ await loadAll(); }
   render();
+  if (session) ensureNavFoundation();
 }
 
 function renderNotConfigured(){
@@ -215,6 +245,7 @@ async function setTab(tab){
   state.scannedBarcode = null;
   localStorage.setItem('weblinka_tab', tab);
   render();
+  window.history.replaceState({ tab }, '', '#' + tab);
 }
 
 function renderTab(){
@@ -252,6 +283,7 @@ async function login(){
   if (error){ document.getElementById('login-err').textContent = 'Błędny e-mail lub hasło.'; return; }
   await loadAll();
   render();
+  ensureNavFoundation();
 }
 
 async function logout(){
@@ -318,6 +350,7 @@ async function onBarcode(code){
   const existing = state.products.find(p => p.barcode === code);
   state.scannedBarcode = code;
   state.scannedProduct = existing || false; // false = nie znaleziono
+  window.history.pushState({ view: 'scan-result' }, '');
   renderTab();
 }
 
@@ -662,6 +695,7 @@ function editProduct(id){
   state.scannedProduct = p;
   state.scannedBarcode = p.barcode;
   state.tab = 'scan';
+  window.history.pushState({ view: 'scan-result' }, '');
   render();
 }
 
