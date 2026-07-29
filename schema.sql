@@ -33,12 +33,15 @@ create table products (
   shelf_target integer not null default 0,     -- ile powinno być na półce
   current_stock integer not null default 0,     -- ile jest teraz (ostatnie liczenie)
   image_url text,                               -- zdjęcie produktu (Open Food Facts)
+  price numeric(10,2),                          -- cena
+  expiry_date date,                             -- data ważności (najbliższa/aktualna partia)
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
 
 create index products_barcode_idx on products(barcode);
 create index products_category_idx on products(category_id);
+create index products_expiry_date_idx on products(expiry_date);
 create index products_location_idx on products(location_id);
 
 -- Historia liczeń (audyt tego co się działo przy każdym skanie)

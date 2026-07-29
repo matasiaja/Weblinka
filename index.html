@@ -62,7 +62,12 @@
   .product-row:last-child{border-bottom:none;}
   .product-row .name{font-weight:500;font-size:14px;}
   .product-row .meta{font-size:11px;color:var(--text-dim);font-family:'IBM Plex Mono',monospace;margin-top:2px;}
+  .product-row .meta .badge{margin-left:6px;vertical-align:middle;}
   .stat{font-family:'IBM Plex Mono',monospace;font-size:13px;text-align:right;}
+  .stat .price{display:block;color:var(--text-dim);font-size:11px;margin-top:2px;}
+  .tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;}
+  .tabs button{flex:0 0 auto;background:var(--surface-2);border:1px solid var(--border);color:var(--text-dim);border-radius:9px;padding:8px 12px;font-family:inherit;font-size:12px;cursor:pointer;}
+  .tabs button.active{background:var(--accent);border-color:var(--accent);color:#fff;}
   .empty{text-align:center;color:var(--text-dim);padding:40px 20px;font-size:13px;}
   .empty svg{width:40px;height:40px;opacity:.4;margin-bottom:10px;}
   /* scanner */
@@ -97,7 +102,15 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 let sb = null;
 let session = null;
-let state = { tab: localStorage.getItem('weblinka_tab') || 'scan', scanMode: 'restock', products: [], categories: [], locations: [], scannerRunning: false, scannedProduct: null, scannedBarcode: null };
+let state = {
+  tab: localStorage.getItem('weblinka_tab') || 'scan', scanMode: 'restock',
+  products: [], categories: [], locations: [], scannerRunning: false, scannedProduct: null, scannedBarcode: null,
+  listQuery: '',
+  listCategoryFilter: localStorage.getItem('weblinka_cat_filter') || 'all',
+  listStatusFilter: localStorage.getItem('weblinka_status_filter') || 'all',
+  listSortBy: localStorage.getItem('weblinka_sort') || 'name',
+  listSortDir: localStorage.getItem('weblinka_sort_dir') || 'asc'
+};
 
 const app = document.getElementById('app');
 
@@ -462,6 +475,17 @@ function renderScanResult(main){
         <label>Lokalizacja</label>
         <select id="edit-loc"><option value="">— brak —</option>${editLocOpts}</select>
 
+        <div class="row">
+          <div>
+            <label>Cena (zł)</label>
+            <input id="edit-price" type="number" min="0" step="0.01" inputmode="decimal" value="${p.price != null ? p.price : ''}" placeholder="np. 12.99">
+          </div>
+          <div>
+            <label>Data ważności</label>
+            <input id="edit-expiry" type="date" value="${p.expiry_date || ''}">
+          </div>
+        </div>
+
         <button class="btn" onclick="saveCount('${p.id}')">Zapisz</button>
         <button class="btn secondary" style="margin-top:8px;" onclick="rescan()">Skanuj kolejny</button>
         <button class="btn secondary" style="margin-top:8px;color:var(--danger);" onclick="deleteProduct('${p.id}')">Usuń produkt</button>
@@ -497,6 +521,16 @@ function renderScanResult(main){
           <div>
             <label>Ile powinno być (cel)</label>
             <input id="new-target" type="number" min="0" value="0">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Cena (zł)</label>
+            <input id="new-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="np. 12.99">
+          </div>
+          <div>
+            <label>Data ważności</label>
+            <input id="new-expiry" type="date">
           </div>
         </div>
         <button class="btn" onclick="saveNewProduct('${code}')">Dodaj produkt</button>
@@ -604,7 +638,10 @@ async function saveCount(productId){
   const name = document.getElementById('name-input').value.trim();
   const category_id = document.getElementById('edit-cat').value || null;
   const location_id = document.getElementById('edit-loc').value || null;
-  const updates = { current_stock: count, shelf_target: target, category_id, location_id };
+  const priceVal = document.getElementById('edit-price').value;
+  const price = priceVal !== '' ? parseFloat(priceVal) : null;
+  const expiry_date = document.getElementById('edit-expiry').value || null;
+  const updates = { current_stock: count, shelf_target: target, category_id, location_id, price, expiry_date };
   if (name) updates.name = name;
   await sb.from('products').update(updates).eq('id', productId);
   await sb.from('stock_checks').insert({ product_id: productId, counted_stock: count, target_stock: target });
@@ -714,7 +751,10 @@ async function saveNewProduct(barcode){
   const inputVal = parseInt(document.getElementById('new-count').value)||0;
   const current_stock = state.scanMode === 'gap' ? Math.max(shelf_target - inputVal, 0) : inputVal;
   const image_url = document.getElementById('new-image-url').value || null;
-  const { data, error } = await sb.from('products').insert({ barcode, name, category_id, location_id, current_stock, shelf_target, image_url }).select().single();
+  const priceVal = document.getElementById('new-price').value;
+  const price = priceVal !== '' ? parseFloat(priceVal) : null;
+  const expiry_date = document.getElementById('new-expiry').value || null;
+  const { data, error } = await sb.from('products').insert({ barcode, name, category_id, location_id, current_stock, shelf_target, image_url, price, expiry_date }).select().single();
   if (error){ toast('Błąd: ' + error.message); return; }
   await sb.from('stock_checks').insert({ product_id: data.id, counted_stock: current_stock, target_stock: shelf_target });
   if (state.scanMode === 'delivery' && current_stock > 0){
@@ -726,38 +766,163 @@ async function saveNewProduct(barcode){
 }
 
 // ---------------- LIST TAB ----------------
-function renderList(main){
-  const rows = state.products.map(p=>{
-    const s = status(p);
-    return `<div class="product-row" onclick="editProduct('${p.id}')">
-      <div>
-        <div class="name">${escapeHtml(p.name)}</div>
-        <div class="meta">${catName(p.category_id)} · ${locName(p.location_id)}</div>
-      </div>
-      <div class="stat">
-        <span class="badge ${s}">${p.current_stock}/${p.shelf_target}</span>
-      </div>
-    </div>`;
-  }).join('');
+// ---------------- KATALOG: filtry i sortowanie ----------------
+const LIST_SORT_OPTIONS = [
+  ['name', 'Nazwa'],
+  ['price', 'Cena'],
+  ['expiry_date', 'Data ważności'],
+  ['current_stock', 'Stan'],
+  ['category', 'Kategoria']
+];
+const LIST_SORT_NUMERIC_KEYS = ['price', 'current_stock'];
+const LIST_SORT_DATE_KEYS = ['expiry_date'];
+const LIST_STATUS_OPTIONS = [
+  ['all', 'Status: wszystkie'],
+  ['brak', 'Braki (poniżej celu)'],
+  ['nadmiar', 'Nadmiar (powyżej celu)'],
+  ['wygasa', 'Wygasa w ciągu 7 dni'],
+  ['przeterminowane', 'Przeterminowane']
+];
 
-  main.innerHTML = `
-    <input id="search" placeholder="Szukaj produktu…" oninput="filterList(this.value)">
-    <div class="card" id="list-wrap">
-      ${state.products.length ? rows : emptyState('box','Brak produktów. Zeskanuj pierwszy towar.')}
-    </div>`;
+function daysUntil(dateStr){
+  if (!dateStr) return null;
+  const now = new Date(); now.setHours(0,0,0,0);
+  const d = new Date(dateStr); d.setHours(0,0,0,0);
+  return Math.round((d - now) / 86400000);
 }
 
-function filterList(q){
-  q = q.toLowerCase();
-  const filtered = state.products.filter(p => p.name.toLowerCase().includes(q) || p.barcode.includes(q));
-  const wrap = document.getElementById('list-wrap');
-  wrap.innerHTML = filtered.map(p=>{
-    const s = status(p);
-    return `<div class="product-row" onclick="editProduct('${p.id}')">
-      <div><div class="name">${escapeHtml(p.name)}</div><div class="meta">${catName(p.category_id)} · ${locName(p.location_id)}</div></div>
-      <div class="stat"><span class="badge ${s}">${p.current_stock}/${p.shelf_target}</span></div>
+function expiryBadgeHtml(p){
+  const days = daysUntil(p.expiry_date);
+  if (days === null) return '';
+  if (days < 0) return `<span class="badge danger">przeterm. ${Math.abs(days)}d</span>`;
+  if (days <= 7) return `<span class="badge ${days<=3?'danger':'warn'}">${days}d do końca</span>`;
+  return `<span class="badge">do ${new Date(p.expiry_date).toLocaleDateString('pl-PL')}</span>`;
+}
+
+function priceHtml(p){
+  return (p.price != null) ? `<span class="price">${Number(p.price).toFixed(2)} zł</span>` : '';
+}
+
+function setListQuery(v){
+  state.listQuery = v;
+  renderTab();
+  const el = document.getElementById('list-search');
+  if (el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+}
+
+function clearListQuery(){
+  state.listQuery = '';
+  renderTab();
+  const el = document.getElementById('list-search');
+  if (el) el.focus();
+}
+
+function setListCategoryFilter(v){
+  state.listCategoryFilter = v;
+  localStorage.setItem('weblinka_cat_filter', v);
+  renderTab();
+}
+
+function setListStatusFilter(v){
+  state.listStatusFilter = v;
+  localStorage.setItem('weblinka_status_filter', v);
+  renderTab();
+}
+
+function setListSortBy(v){
+  state.listSortBy = v;
+  localStorage.setItem('weblinka_sort', v);
+  renderTab();
+}
+
+function toggleListSortDir(){
+  state.listSortDir = state.listSortDir === 'desc' ? 'asc' : 'desc';
+  localStorage.setItem('weblinka_sort_dir', state.listSortDir);
+  renderTab();
+}
+
+function listCategoryTabsHtml(){
+  const top = state.categories.filter(c=>!c.parent_id);
+  const inCat = (p, catId) => p.category_id === catId ||
+    state.categories.find(c=>c.id===p.category_id)?.parent_id === catId;
+  return `<div class="tabs">
+    <button class="${state.listCategoryFilter==='all'?'active':''}" onclick="setListCategoryFilter('all')">Wszystko (${state.products.length})</button>
+    ${top.map(c=>`<button class="${state.listCategoryFilter===c.id?'active':''}" onclick="setListCategoryFilter('${c.id}')">${escapeHtml(c.name)} (${state.products.filter(p=>inCat(p,c.id)).length})</button>`).join('')}
+  </div>`;
+}
+
+function listSortSelectHtml(){
+  const numeric = LIST_SORT_NUMERIC_KEYS.includes(state.listSortBy) || LIST_SORT_DATE_KEYS.includes(state.listSortBy);
+  const dirLabel = state.listSortDir === 'desc' ? (numeric ? '↓ malejąco' : 'Z-A ↓') : (numeric ? '↑ rosnąco' : 'A-Z ↑');
+  return `<div class="row" style="margin-bottom:10px;">
+    <select onchange="setListSortBy(this.value)" style="margin-bottom:0;">
+      ${LIST_SORT_OPTIONS.map(([v,label])=>`<option value="${v}" ${state.listSortBy===v?'selected':''}>Sortuj: ${label}</option>`).join('')}
+    </select>
+    <select onchange="setListStatusFilter(this.value)" style="margin-bottom:0;">
+      ${LIST_STATUS_OPTIONS.map(([v,label])=>`<option value="${v}" ${state.listStatusFilter===v?'selected':''}>${label}</option>`).join('')}
+    </select>
+    <button type="button" class="btn small secondary" style="flex:0 0 auto;" onclick="toggleListSortDir()">${dirLabel}</button>
+  </div>`;
+}
+
+function sortListProducts(list){
+  const key = state.listSortBy || 'name';
+  const dir = state.listSortDir === 'desc' ? -1 : 1;
+  const collator = new Intl.Collator('pl', { sensitivity: 'base' });
+  return [...list].sort((a,b) => {
+    if (LIST_SORT_NUMERIC_KEYS.includes(key)) return dir * ((a[key]||0) - (b[key]||0));
+    if (LIST_SORT_DATE_KEYS.includes(key)){
+      const da = a[key] ? new Date(a[key]).getTime() : Infinity;
+      const db = b[key] ? new Date(b[key]).getTime() : Infinity;
+      return dir * (da - db);
+    }
+    if (key === 'category') return dir * collator.compare(catName(a.category_id), catName(b.category_id));
+    return dir * collator.compare((a[key]||'').toString(), (b[key]||'').toString());
+  });
+}
+
+function filteredSortedProducts(){
+  const q = (state.listQuery||'').toLowerCase().trim();
+  const inCat = (p, catId) => p.category_id === catId ||
+    state.categories.find(c=>c.id===p.category_id)?.parent_id === catId;
+  let list = state.products;
+  if (state.listCategoryFilter !== 'all') list = list.filter(p => inCat(p, state.listCategoryFilter));
+  if (state.listStatusFilter === 'brak') list = list.filter(p => p.current_stock < p.shelf_target);
+  else if (state.listStatusFilter === 'nadmiar') list = list.filter(p => p.current_stock > p.shelf_target);
+  else if (state.listStatusFilter === 'wygasa') list = list.filter(p => { const d = daysUntil(p.expiry_date); return d !== null && d >= 0 && d <= 7; });
+  else if (state.listStatusFilter === 'przeterminowane') list = list.filter(p => { const d = daysUntil(p.expiry_date); return d !== null && d < 0; });
+  if (q) list = list.filter(p => p.name.toLowerCase().includes(q) || p.barcode.includes(q));
+  return sortListProducts(list);
+}
+
+function productRowHtml(p){
+  const s = status(p);
+  return `<div class="product-row" onclick="editProduct('${p.id}')">
+    <div>
+      <div class="name">${escapeHtml(p.name)}</div>
+      <div class="meta">${catName(p.category_id)} · ${locName(p.location_id)}${expiryBadgeHtml(p) ? ' ' + expiryBadgeHtml(p) : ''}</div>
+    </div>
+    <div class="stat">
+      <span class="badge ${s}">${p.current_stock}/${p.shelf_target}</span>
+      ${priceHtml(p)}
+    </div>
+  </div>`;
+}
+
+function renderList(main){
+  const filtered = filteredSortedProducts();
+  main.innerHTML = `
+    <div style="position:relative;margin-bottom:14px;">
+      <input id="list-search" value="${escapeHtml(state.listQuery)}" placeholder="Szukaj produktu…" oninput="setListQuery(this.value)" style="margin-bottom:0;${state.listQuery ? 'padding-right:44px;' : ''}">
+      ${state.listQuery ? `<button type="button" onclick="clearListQuery()" aria-label="Wyczyść pole" title="Wyczyść i przygotuj do kolejnego skanu" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);width:32px;height:32px;border:none;background:var(--surface);color:var(--text-dim);border-radius:8px;font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>` : ''}
+    </div>
+    ${listCategoryTabsHtml()}
+    ${listSortSelectHtml()}
+    <div class="card" id="list-wrap">
+      ${state.products.length===0 ? emptyState('box','Brak produktów. Zeskanuj pierwszy towar.') :
+        filtered.length===0 ? emptyState('box','Nic nie znaleziono.') :
+        filtered.map(productRowHtml).join('')}
     </div>`;
-  }).join('') || emptyState('box','Nic nie znaleziono.');
 }
 
 function editProduct(id){
@@ -782,8 +947,8 @@ function renderAlerts(main){
 
   const rows = short.map(p=>`
     <div class="product-row">
-      <div><div class="name">${escapeHtml(p.name)}</div><div class="meta">${catName(p.category_id)} · ${locName(p.location_id)}</div></div>
-      <div class="stat"><span class="badge ${status(p)}">brakuje ${p.shelf_target-p.current_stock}</span></div>
+      <div><div class="name">${escapeHtml(p.name)}</div><div class="meta">${catName(p.category_id)} · ${locName(p.location_id)}${expiryBadgeHtml(p) ? ' ' + expiryBadgeHtml(p) : ''}</div></div>
+      <div class="stat"><span class="badge ${status(p)}">brakuje ${p.shelf_target-p.current_stock}</span>${priceHtml(p)}</div>
     </div>`).join('');
 
   main.innerHTML = `
@@ -802,6 +967,8 @@ function exportShortages(){
     'Stan': p.current_stock,
     'Cel': p.shelf_target,
     'Brakuje': p.shelf_target - p.current_stock,
+    'Cena': p.price != null ? Number(p.price).toFixed(2) : '',
+    'Data ważności': p.expiry_date || '',
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
