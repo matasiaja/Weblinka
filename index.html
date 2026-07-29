@@ -46,6 +46,11 @@
   .btn.small{width:auto;padding:9px 14px;font-size:13px;}
   input,select{width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:11px 12px;font-family:inherit;font-size:14px;margin-bottom:10px;}
   input:focus,select:focus{outline:none;border-color:var(--accent);}
+  .hw-scan-box{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:12px;}
+  .hw-scan-box .hw-scan-label{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-dim);font-family:'IBM Plex Mono',monospace;margin-bottom:8px;}
+  .hw-scan-box .hw-scan-label svg{width:14px;height:14px;flex-shrink:0;}
+  .hw-scan-input{margin-bottom:0;border-color:var(--accent);background:var(--surface);font-family:'IBM Plex Mono',monospace;letter-spacing:.5px;}
+  .hw-scan-input::placeholder{font-family:inherit;letter-spacing:normal;}
   label{font-size:12px;color:var(--text-dim);display:block;margin-bottom:5px;font-family:'IBM Plex Mono',monospace;}
   .row{display:flex;gap:10px;}
   .row>*{flex:1;}
@@ -304,6 +309,7 @@ function renderScan(main){
     return;
   }
   main.innerHTML = `
+    ${hwScanInputHtml('hw-scan-main')}
     <div class="scan-frame">
       <div id="reader"></div>
       <div class="laser"></div>
@@ -315,6 +321,7 @@ function renderScan(main){
       <button class="btn secondary" onclick="manualBarcode()">Wpisz kod ręcznie</button>
     </div>
   `;
+  bindHwScanInput('hw-scan-main', onBarcode);
   startScanner();
 }
 
@@ -347,6 +354,50 @@ async function stopScanner(){
 function manualBarcode(){
   const code = prompt('Wpisz kod kreskowy:');
   if (code) onBarcode(code.trim());
+}
+
+function hwScanInputHtml(id, placeholder){
+  placeholder = placeholder || 'Zeskanuj kod skanerem…';
+  return `
+    <div class="hw-scan-box">
+      <div class="hw-scan-label">${icon('scan')} Skaner USB/Bluetooth — kliknij tutaj i zeskanuj (albo wpisz kod i Enter)</div>
+      <input id="${id}" class="hw-scan-input" inputmode="none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="${placeholder}">
+    </div>
+  `;
+}
+
+// Skaner USB/BT (np. NETUM NT-1228BL) działa jako klawiatura — wpisuje kod i wysyła Enter.
+// Na Androidzie ten "Enter" od zewnętrznej klawiatury Bluetooth często nie dociera jako
+// zdarzenie keydown (zależnie od przeglądarki/IME), więc oprócz obsługi Entera dokładamy
+// awaryjny mechanizm: skaner wpisuje cały kod błyskawicznie, więc krótka pauza w pisaniu
+// (200ms bez nowego znaku) też oznacza, że skan się skończył — wysyłamy kod automatycznie.
+function bindHwScanInput(id, onSubmit){
+  const el = document.getElementById(id);
+  if (!el) return;
+  let timer = null;
+  const submitNow = () => {
+    clearTimeout(timer);
+    const code = el.value.replace(/[\r\n]+$/, '').trim();
+    el.value = '';
+    if (code) onSubmit(code);
+  };
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === 'Tab'){
+      e.preventDefault();
+      submitNow();
+    }
+  });
+  el.addEventListener('input', () => {
+    if (/[\r\n]/.test(el.value)){
+      submitNow();
+      return;
+    }
+    clearTimeout(timer);
+    if (el.value.trim().length >= 4){
+      timer = setTimeout(submitNow, 200);
+    }
+  });
+  el.focus();
 }
 
 async function onBarcode(code){
