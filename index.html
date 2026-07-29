@@ -890,7 +890,21 @@ function escapeHtml(str){
   return d.innerHTML;
 }
 
-boot();
+boot().catch(err => {
+  console.error('Błąd uruchamiania aplikacji:', err);
+  const cdnBlocked = typeof supabase === 'undefined';
+  app.innerHTML = `
+    <div style="max-width:340px;margin:80px auto;padding:0 20px;text-align:center;">
+      <img src="logo.svg" alt="Weblinka" style="width:64px;height:64px;display:block;margin:0 auto 14px;">
+      <h1 style="margin-bottom:8px;">Nie udało się uruchomić</h1>
+      <p style="color:var(--text-dim);font-size:13px;line-height:1.5;">
+        ${cdnBlocked
+          ? 'Nie udało się załadować wymaganej biblioteki (Supabase) z sieci. Sprawdź połączenie internetowe — jeśli używasz VPN lub blokady reklam, spróbuj je wyłączyć dla tej strony.'
+          : 'Wystąpił nieoczekiwany błąd przy starcie. Odśwież stronę; jeśli problem się powtórzy, sprawdź konsolę przeglądarki.'}
+      </p>
+      <button class="btn" style="margin-top:16px;" onclick="location.reload()">Spróbuj ponownie</button>
+    </div>`;
+});
 
 if ('serviceWorker' in navigator){
   window.addEventListener('load', () => {
