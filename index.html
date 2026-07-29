@@ -162,11 +162,26 @@ function status(p){
 }
 
 // ---------------- BOOT ----------------
+// Mimo atrybutu defer, w niektórych przeglądarkach/rozszerzeniach zdarza się, że ten skrypt
+// startuje zanim vendor/supabase.js zdąży się w pełni wykonać (obserwowane w praktyce — obiekt
+// `supabase` bywa dostępny chwilę później, choć teoretycznie defer gwarantuje kolejność).
+// Więc zamiast zakładać, że jest gotowy od razu, czekamy na niego z krótkim pollingiem.
+function waitForSupabaseLib(retries = 30, delayMs = 100){
+  return new Promise((resolve, reject) => {
+    (function check(n){
+      if (typeof supabase !== 'undefined') return resolve();
+      if (n <= 0) return reject(new Error('Biblioteka Supabase nie załadowała się w rozsądnym czasie'));
+      setTimeout(() => check(n - 1), delayMs);
+    })(retries);
+  });
+}
+
 async function boot(){
   if (!configured()){
     renderNotConfigured();
     return;
   }
+  await waitForSupabaseLib();
   sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const { data } = await sb.auth.getSession();
   session = data.session;
